@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import { getCookiesValue } from "@/utils/jwt-auth";
 import { render } from "@react-email/render";
 import InviteMemberEmail from "../../../emails/invitationMail";
-import { sendEmail } from "@/service/mailService";
 
 const InvitedMemberPage = () => {
   const router = useRouter();
@@ -94,16 +93,22 @@ const InvitedMemberPage = () => {
 
       if (error) throw error;
 
-      await sendEmail({
-        to: email,
-        subject: "Invitation To Join Space",
-        message: render(
-          InviteMemberEmail({
-            invited_by: data.admins.name,
-            invited_for: data.restaurants.name,
-            role: data.roles.name,
-          })
-        ),
+      await fetch("/api/send-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          to: email,
+          subject: "Invitation To Join Space",
+          message: render(
+            InviteMemberEmail({
+              invited_by: data.admins.name,
+              invited_for: data.restaurants.name,
+              role: data.roles.name,
+            })
+          ),
+        }),
       });
 
       router.push("/invited-members");

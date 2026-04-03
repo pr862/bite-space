@@ -1,21 +1,8 @@
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  ObjectCannedACL,
-  PutObjectCommand,
-  S3Client,
-} from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import supabase from "@/utils/supabase";
 
-const s3 = new S3Client({
-  region: process.env.NEXT_PUBLIC_AWS_REGION,
-  credentials: {
-    accessKeyId: process.env.NEXT_PUBLIC_ACCESS_KEY_ID as string,
-    secretAccessKey: process.env.NEXT_PUBLIC_SECRET_ACCESS_KEY as string,
-  },
-});
-
-const bucketUrl = `https://${process.env.NEXT_PUBLIC_AWS_BUCKET_NAME}.s3.${process.env.NEXT_PUBLIC_AWS_REGION}.amazonaws.com/`;
+const storageBucket = process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET as string;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
+const bucketUrl = `${supabaseUrl}/storage/v1/object/public/${storageBucket}/`;
 
 const getFilenameFromURL = (url: string) => {
   const path = new URL(url).pathname;
@@ -24,17 +11,20 @@ const getFilenameFromURL = (url: string) => {
 
 const convertToWebP = (file: File): Promise<Blob> => {
   return new Promise((resolve, reject) => {
-    // Create an image element and load the file
+    // Validate that file is a valid File/Blob object
+    if (!file || !(file instanceof Blob)) {
+      reject(new Error("Invalid file: Expected a Blob or File object"));
+      return;
+    }
+
     const img = new Image();
     img.onload = () => {
-      // Create a canvas and draw the image onto it
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
       canvas.width = img.width;
       canvas.height = img.height;
       ctx?.drawImage(img, 0, 0);
 
-      // Convert the canvas content to a WebP blob
       canvas.toBlob((blob) => {
         if (blob) {
           resolve(blob);
@@ -55,45 +45,70 @@ const changeFileExtensionToWebpExtension = (name: string) => {
 };
 
 const uploadFileTos3 = async (bucket: string, file: any, fileName: string) => {
-  let uploadParams = {
-    Bucket: process.env.NEXT_PUBLIC_AWS_BUCKET_NAME,
-    Body: file,
-    ContentType: file.type,
-    Key: bucket + "/" + fileName,
-    ACL: "public-read" as ObjectCannedACL,
-  };
+  const filePath = `${bucket}/${fileName}`;
 
   try {
-    const command = new PutObjectCommand(uploadParams);
-    await s3.send(command);
+    if (!storageBucket) {
+      throw new Error("Missing NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET");
+    }
 
-    const getObj = new GetObjectCommand({
-      Bucket: process.env.NEXT_PUBLIC_AWS_BUCKET_NAME,
-      Key: bucket + "/" + fileName,
-    });
+    const { error: uploadError } = await supabase.storage
+      .from(storageBucket)
+      .upload(filePath, file, {
+        contentType: file.type || "application/octet-stream",
+        upsert: true,
+      });
 
-    const src = await getSignedUrl(s3, getObj);
+    if (uploadError) throw uploadError;
 
-    const url = src.substring(0, src.indexOf("?"));
+    const { data } = supabase.storage.from(storageBucket).getPublicUrl(filePath);
 
-    return url;
+    if (!data.publicUrl) {
+      throw new Error("Failed to generate Supabase Storage public URL");
+    }
+
+    return data.publicUrl;
   } catch (error) {
-    console.error("Error while uploading file to s3: ", error);
+    console.error("Error while uploading file to storage: ", error);
   }
 
   return "";
 };
 
+const getStoragePathFromURL = (fileUrl: string) => {
+  if (fileUrl.startsWith(bucketUrl)) {
+    return fileUrl.replace(bucketUrl, "");
+  }
+
+  try {
+    const path = new URL(fileUrl).pathname;
+    const marker = `/storage/v1/object/public/${storageBucket}/`;
+    const markerIndex = path.indexOf(marker);
+
+    if (markerIndex >= 0) {
+      return decodeURIComponent(path.substring(markerIndex + marker.length));
+    }
+  } catch (error) {
+    console.error("Error while parsing storage path: ", error);
+  }
+
+  return fileUrl;
+};
+
 const deleteFileFroms3 = async (fileUrl: string) => {
   try {
-    const deleteObj = new DeleteObjectCommand({
-      Bucket: process.env.NEXT_PUBLIC_AWS_BUCKET_NAME,
-      Key: fileUrl.replace(bucketUrl, ""),
-    });
+    if (!storageBucket) {
+      throw new Error("Missing NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET");
+    }
 
-    await s3.send(deleteObj);
+    const filePath = getStoragePathFromURL(fileUrl);
+    const { error } = await supabase.storage
+      .from(storageBucket)
+      .remove([filePath]);
+
+    if (error) throw error;
   } catch (error) {
-    console.error("Error while deleting the file from s3: ", error);
+    console.error("Error while deleting the file from storage: ", error);
   }
 };
 

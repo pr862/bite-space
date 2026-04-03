@@ -18,6 +18,7 @@ const AddMenuPage = () => {
   const router = useRouter();
   const [restaurantId, setRestaurantId] = useState<number>(0);
 
+  
   const [errors, setErrors] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 

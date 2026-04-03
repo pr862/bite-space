@@ -7,7 +7,6 @@ import { z } from "zod";
 import { SignJWT } from "jose";
 import { render } from "@react-email/render";
 import ForgotPasswordEmail from "@/emails/forgotPassword";
-import { sendEmail } from "@/service/mailService";
 
 const ForgotPasswordPage = () => {
   const [error, setError] = useState<any>();
@@ -79,14 +78,20 @@ const ForgotPasswordPage = () => {
 
       if (error) throw error;
 
-      await sendEmail({
-        to: email,
-        subject: "Reset Password Link",
-        message: render(
-          ForgotPasswordEmail(
-            process.env.NEXT_PUBLIC_ADMIN_BASE_URL + "/reset-password/" + token
-          )
-        ),
+      await fetch("/api/send-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          to: email,
+          subject: "Reset Password Link",
+          message: render(
+            ForgotPasswordEmail(
+              process.env.NEXT_PUBLIC_ADMIN_BASE_URL + "/reset-password/" + token
+            )
+          ),
+        }),
       });
 
       setIsShowSuccess(true);
